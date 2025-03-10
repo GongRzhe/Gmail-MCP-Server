@@ -16,6 +16,7 @@ import { fileURLToPath } from 'url';
 import http from 'http';
 import open from 'open';
 import os from 'os';
+import {createEmailMessage} from "./utl";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -57,19 +58,6 @@ interface EmailContent {
 let oauth2Client: OAuth2Client;
 
 /**
- * Helper function to encode email headers containing non-ASCII characters
- * according to RFC 2047 MIME specification
- */
-function encodeEmailHeader(text: string): string {
-    // Only encode if the text contains non-ASCII characters
-    if (/[^\x00-\x7F]/.test(text)) {
-        // Use MIME Words encoding (RFC 2047)
-        return '=?UTF-8?B?' + Buffer.from(text).toString('base64') + '?=';
-    }
-    return text;
-}
-
-/**
  * Recursively extract email body content from MIME message parts
  * Handles complex email structures with nested parts
  */
@@ -77,11 +65,11 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
     // Initialize containers for different content types
     let textContent = '';
     let htmlContent = '';
-    
+
     // If the part has a body with data, process it based on MIME type
     if (messagePart.body && messagePart.body.data) {
         const content = Buffer.from(messagePart.body.data, 'base64').toString('utf8');
-        
+
         // Store content based on its MIME type
         if (messagePart.mimeType === 'text/plain') {
             textContent = content;
@@ -89,7 +77,7 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
             htmlContent = content;
         }
     }
-    
+
     // If the part has nested parts, recursively process them
     if (messagePart.parts && messagePart.parts.length > 0) {
         for (const part of messagePart.parts) {
@@ -98,7 +86,7 @@ function extractEmailContent(messagePart: GmailMessagePart): EmailContent {
             if (html) htmlContent += html;
         }
     }
-    
+
     // Return both plain text and HTML content
     return { text: textContent, html: htmlContent };
 }
@@ -113,7 +101,7 @@ async function loadCredentials() {
         // Check for OAuth keys in current directory first, then in config directory
         const localOAuthPath = path.join(process.cwd(), 'gcp-oauth.keys.json');
         let oauthPath = OAUTH_PATH;
-        
+
         if (fs.existsSync(localOAuthPath)) {
             // If found in current directory, copy to config directory
             fs.copyFileSync(localOAuthPath, OAUTH_PATH);
@@ -127,7 +115,7 @@ async function loadCredentials() {
 
         const keysContent = JSON.parse(fs.readFileSync(OAUTH_PATH, 'utf8'));
         const keys = keysContent.installed || keysContent.web;
-        
+
         if (!keys) {
             console.error('Error: Invalid OAuth keys file format. File should contain either "installed" or "web" credentials.');
             process.exit(1);
@@ -254,6 +242,11 @@ async function main() {
                 inputSchema: zodToJsonSchema(SendEmailSchema),
             },
             {
+                name: "draft_email",
+                description: "Draft a new email",
+                inputSchema: zodToJsonSchema(SendEmailSchema),
+            },
+            {
                 name: "read_email",
                 description: "Retrieves the content of a specific email",
                 inputSchema: zodToJsonSchema(ReadEmailSchema),
@@ -279,53 +272,61 @@ async function main() {
                 inputSchema: zodToJsonSchema(ListEmailLabelsSchema),
             },
         ],
-    }));
+    }))
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
 
-        try {
-            switch (name) {
-                case "send_email": {
-                    const validatedArgs = SendEmailSchema.parse(args);
-                    
-                    // Encode subject and other potential headers that might contain non-ASCII characters
-                    const encodedSubject = encodeEmailHeader(validatedArgs.subject);
-                    
-                    // Create email content with proper headers and encoding
-                    const message = [
-                        'From: me',
-                        `To: ${validatedArgs.to.join(', ')}`,
-                        validatedArgs.cc ? `Cc: ${validatedArgs.cc.join(', ')}` : '',
-                        validatedArgs.bcc ? `Bcc: ${validatedArgs.bcc.join(', ')}` : '',
-                        `Subject: ${encodedSubject}`,
-                        'MIME-Version: 1.0',
-                        'Content-Type: text/plain; charset=UTF-8',
-                        'Content-Transfer-Encoding: 7bit',
-                        '',
-                        validatedArgs.body
-                    ].filter(Boolean).join('\r\n');
+        async function handleEmailAction(action: "send" | "draft", validatedArgs: any) {
+            const message = createEmailMessage(validatedArgs);
 
-                    const encodedMessage = Buffer.from(message).toString('base64')
-                        .replace(/\+/g, '-')
-                        .replace(/\//g, '_')
-                        .replace(/=+$/, '');
+            const encodedMessage = Buffer.from(message).toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
 
-                    const response = await gmail.users.messages.send({
-                        userId: 'me',
-                        requestBody: {
+            if (action === "send") {
+                const response = await gmail.users.messages.send({
+                    userId: 'me',
+                    requestBody: {
+                        raw: encodedMessage,
+                    },
+                });
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Email sent successfully with ID: ${response.data.id}`,
+                        },
+                    ],
+                };
+            } else {
+                const response = await gmail.users.drafts.create({
+                    userId: 'me',
+                    requestBody: {
+                        message: {
                             raw: encodedMessage,
                         },
-                    });
+                    },
+                });
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Email draft created successfully with ID: ${response.data.id}`,
+                        },
+                    ],
+                };
+            }
+        }
 
-                    return {
-                        content: [
-                            {
-                                type: "text",
-                                text: `Email sent successfully with ID: ${response.data.id}`,
-                            },
-                        ],
-                    };
+        try {
+            switch (name) {
+                case "send_email":
+                case "draft_email": {
+                    const validatedArgs = SendEmailSchema.parse(args);
+                    const action = name === "send_email" ? "send" : "draft";
+                    return await handleEmailAction(action, validatedArgs);
                 }
 
                 case "read_email": {
@@ -344,15 +345,15 @@ async function main() {
 
                     // Extract email content using the recursive function
                     const { text, html } = extractEmailContent(response.data.payload as GmailMessagePart || {});
-                    
+
                     // Use plain text content if available, otherwise use HTML content
                     // (optionally, you could implement HTML-to-text conversion here)
                     let body = text || html || '';
-                    
+
                     // If we only have HTML content, add a note for the user
-                    const contentTypeNote = !text && html ? 
+                    const contentTypeNote = !text && html ?
                         '[Note: This email is HTML-formatted. Plain text version not available.]\n\n' : '';
-                    
+
                     // Get attachment information
                     const attachments: EmailAttachment[] = [];
                     const processAttachmentParts = (part: GmailMessagePart, path: string = '') => {
@@ -365,21 +366,21 @@ async function main() {
                                 size: part.body.size || 0
                             });
                         }
-                        
+
                         if (part.parts) {
-                            part.parts.forEach((subpart: GmailMessagePart) => 
+                            part.parts.forEach((subpart: GmailMessagePart) =>
                                 processAttachmentParts(subpart, `${path}/parts`)
                             );
                         }
                     };
-                    
+
                     if (response.data.payload) {
                         processAttachmentParts(response.data.payload as GmailMessagePart);
                     }
-                    
+
                     // Add attachment info to output if any are present
-                    const attachmentInfo = attachments.length > 0 ? 
-                        `\n\nAttachments (${attachments.length}):\n` + 
+                    const attachmentInfo = attachments.length > 0 ?
+                        `\n\nAttachments (${attachments.length}):\n` +
                         attachments.map(a => `- ${a.filename} (${a.mimeType}, ${Math.round(a.size/1024)} KB)`).join('\n') : '';
 
                     return {
@@ -423,7 +424,7 @@ async function main() {
                         content: [
                             {
                                 type: "text",
-                                text: results.map(r => 
+                                text: results.map(r =>
                                     `ID: ${r.id}\nSubject: ${r.subject}\nFrom: ${r.from}\nDate: ${r.date}\n`
                                 ).join('\n'),
                             },
@@ -467,7 +468,7 @@ async function main() {
                         ],
                     };
                 }
-                
+
                 case "list_email_labels": {
                     const response = await gmail.users.labels.list({
                         userId: 'me',
