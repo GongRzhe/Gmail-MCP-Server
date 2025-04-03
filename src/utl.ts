@@ -31,6 +31,9 @@ export function createEmailMessage(validatedArgs: any): string {
         validatedArgs.cc ? `Cc: ${validatedArgs.cc.join(', ')}` : '',
         validatedArgs.bcc ? `Bcc: ${validatedArgs.bcc.join(', ')}` : '',
         `Subject: ${encodedSubject}`,
+        // Add thread-related headers if specified
+        validatedArgs.inReplyTo ? `In-Reply-To: ${validatedArgs.inReplyTo}` : '',
+        validatedArgs.inReplyTo ? `References: ${validatedArgs.inReplyTo}` : '',
         'MIME-Version: 1.0',
         'Content-Type: text/plain; charset=UTF-8',
         'Content-Transfer-Encoding: 7bit',

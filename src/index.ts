@@ -192,6 +192,8 @@ const SendEmailSchema = z.object({
     body: z.string().describe("Email body content"),
     cc: z.array(z.string()).optional().describe("List of CC recipients"),
     bcc: z.array(z.string()).optional().describe("List of BCC recipients"),
+    threadId: z.string().optional().describe("Thread ID to reply to"),
+    inReplyTo: z.string().optional().describe("Message ID being replied to"),
 });
 
 const ReadEmailSchema = z.object({
@@ -315,12 +317,25 @@ async function main() {
                 .replace(/\//g, '_')
                 .replace(/=+$/, '');
 
+            // Define the type for messageRequest
+            interface GmailMessageRequest {
+                raw: string;
+                threadId?: string;
+            }
+
+            const messageRequest: GmailMessageRequest = {
+                raw: encodedMessage,
+            };
+
+            // Add threadId if specified
+            if (validatedArgs.threadId) {
+                messageRequest.threadId = validatedArgs.threadId;
+            }
+
             if (action === "send") {
                 const response = await gmail.users.messages.send({
                     userId: 'me',
-                    requestBody: {
-                        raw: encodedMessage,
-                    },
+                    requestBody: messageRequest,
                 });
                 return {
                     content: [
@@ -334,9 +349,7 @@ async function main() {
                 const response = await gmail.users.drafts.create({
                     userId: 'me',
                     requestBody: {
-                        message: {
-                            raw: encodedMessage,
-                        },
+                        message: messageRequest,
                     },
                 });
                 return {
