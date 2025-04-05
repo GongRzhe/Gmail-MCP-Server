@@ -17,6 +17,7 @@ import http from 'http';
 import open from 'open';
 import os from 'os';
 import {createEmailMessage} from "./utl.js";
+import { createLabel, updateLabel, deleteLabel, listLabels, findLabelByName, getOrCreateLabel } from "./label-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -218,6 +219,30 @@ const DeleteEmailSchema = z.object({
 // New schema for listing email labels
 const ListEmailLabelsSchema = z.object({}).describe("Retrieves all available Gmail labels");
 
+// Label management schemas
+const CreateLabelSchema = z.object({
+    name: z.string().describe("Name for the new label"),
+    messageListVisibility: z.enum(['show', 'hide']).optional().describe("Whether to show or hide the label in the message list"),
+    labelListVisibility: z.enum(['labelShow', 'labelShowIfUnread', 'labelHide']).optional().describe("Visibility of the label in the label list"),
+}).describe("Creates a new Gmail label");
+
+const UpdateLabelSchema = z.object({
+    id: z.string().describe("ID of the label to update"),
+    name: z.string().optional().describe("New name for the label"),
+    messageListVisibility: z.enum(['show', 'hide']).optional().describe("Whether to show or hide the label in the message list"),
+    labelListVisibility: z.enum(['labelShow', 'labelShowIfUnread', 'labelHide']).optional().describe("Visibility of the label in the label list"),
+}).describe("Updates an existing Gmail label");
+
+const DeleteLabelSchema = z.object({
+    id: z.string().describe("ID of the label to delete"),
+}).describe("Deletes a Gmail label");
+
+const GetOrCreateLabelSchema = z.object({
+    name: z.string().describe("Name of the label to get or create"),
+    messageListVisibility: z.enum(['show', 'hide']).optional().describe("Whether to show or hide the label in the message list"),
+    labelListVisibility: z.enum(['labelShow', 'labelShowIfUnread', 'labelHide']).optional().describe("Visibility of the label in the label list"),
+}).describe("Gets an existing label by name or creates it if it doesn't exist");
+
 // Schemas for batch operations
 const BatchModifyEmailsSchema = z.object({
     messageIds: z.array(z.string()).describe("List of message IDs to modify"),
@@ -300,6 +325,26 @@ async function main() {
                 name: "batch_delete_emails",
                 description: "Permanently deletes multiple emails in batches",
                 inputSchema: zodToJsonSchema(BatchDeleteEmailsSchema),
+            },
+            {
+                name: "create_label",
+                description: "Creates a new Gmail label",
+                inputSchema: zodToJsonSchema(CreateLabelSchema),
+            },
+            {
+                name: "update_label",
+                description: "Updates an existing Gmail label",
+                inputSchema: zodToJsonSchema(UpdateLabelSchema),
+            },
+            {
+                name: "delete_label",
+                description: "Deletes a Gmail label",
+                inputSchema: zodToJsonSchema(DeleteLabelSchema),
+            },
+            {
+                name: "get_or_create_label",
+                description: "Gets an existing label by name or creates it if it doesn't exist",
+                inputSchema: zodToJsonSchema(GetOrCreateLabelSchema),
             },
         ],
     }))
@@ -546,33 +591,15 @@ async function main() {
                 }
 
                 case "list_email_labels": {
-                    const response = await gmail.users.labels.list({
-                        userId: 'me',
-                    });
-
-                    const labels = response.data.labels || [];
-                    const formattedLabels = labels.map(label => ({
-                        id: label.id,
-                        name: label.name,
-                        type: label.type,
-                        // Include additional useful information about each label
-                        messageListVisibility: label.messageListVisibility,
-                        labelListVisibility: label.labelListVisibility,
-                        // Only include count if it's a system label (as custom labels don't typically have counts)
-                        messagesTotal: label.messagesTotal,
-                        messagesUnread: label.messagesUnread,
-                        color: label.color
-                    }));
-
-                    // Group labels by type (system vs user) for better organization
-                    const systemLabels = formattedLabels.filter(label => label.type === 'system');
-                    const userLabels = formattedLabels.filter(label => label.type === 'user');
+                    const labelResults = await listLabels(gmail);
+                    const systemLabels = labelResults.system;
+                    const userLabels = labelResults.user;
 
                     return {
                         content: [
                             {
                                 type: "text",
-                                text: `Found ${labels.length} labels (${systemLabels.length} system, ${userLabels.length} user):\n\n` +
+                                text: `Found ${labelResults.count.total} labels (${labelResults.count.system} system, ${labelResults.count.user} user):\n\n` +
                                     "System Labels:\n" +
                                     systemLabels.map(l => `ID: ${l.id}\nName: ${l.name}\n`).join('\n') +
                                     "\nUser Labels:\n" +
@@ -681,6 +708,78 @@ async function main() {
                             {
                                 type: "text",
                                 text: resultText,
+                            },
+                        ],
+                    };
+                }
+
+                // New label management handlers
+                case "create_label": {
+                    const validatedArgs = CreateLabelSchema.parse(args);
+                    const result = await createLabel(gmail, validatedArgs.name, {
+                        messageListVisibility: validatedArgs.messageListVisibility,
+                        labelListVisibility: validatedArgs.labelListVisibility,
+                    });
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Label created successfully:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+                            },
+                        ],
+                    };
+                }
+
+                case "update_label": {
+                    const validatedArgs = UpdateLabelSchema.parse(args);
+                    
+                    // Prepare request body with only the fields that were provided
+                    const updates: any = {};
+                    if (validatedArgs.name) updates.name = validatedArgs.name;
+                    if (validatedArgs.messageListVisibility) updates.messageListVisibility = validatedArgs.messageListVisibility;
+                    if (validatedArgs.labelListVisibility) updates.labelListVisibility = validatedArgs.labelListVisibility;
+                    
+                    const result = await updateLabel(gmail, validatedArgs.id, updates);
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Label updated successfully:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
+                            },
+                        ],
+                    };
+                }
+
+                case "delete_label": {
+                    const validatedArgs = DeleteLabelSchema.parse(args);
+                    const result = await deleteLabel(gmail, validatedArgs.id);
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: result.message,
+                            },
+                        ],
+                    };
+                }
+
+                case "get_or_create_label": {
+                    const validatedArgs = GetOrCreateLabelSchema.parse(args);
+                    const result = await getOrCreateLabel(gmail, validatedArgs.name, {
+                        messageListVisibility: validatedArgs.messageListVisibility,
+                        labelListVisibility: validatedArgs.labelListVisibility,
+                    });
+
+                    const action = result.type === 'user' && result.name === validatedArgs.name ? 'found existing' : 'created new';
+                    
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Successfully ${action} label:\nID: ${result.id}\nName: ${result.name}\nType: ${result.type}`,
                             },
                         ],
                     };

@@ -13,6 +13,7 @@ A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop wi
 - Read email messages by ID with advanced MIME structure handling
 - View email attachments information (filenames, types, sizes)
 - Search emails with various criteria (subject, sender, date range)
+- **Comprehensive label management with ability to create, update, delete and list labels**
 - List all available Gmail labels (system and user-defined)
 - List emails in inbox, sent, or custom labels
 - Mark emails as read/unread
@@ -250,7 +251,50 @@ Retrieves all available Gmail labels.
 {}
 ```
 
-### 8. Batch Modify Emails (`batch_modify_emails`)
+### 8. Create Label (`create_label`)
+Creates a new Gmail label.
+
+```json
+{
+  "name": "Important Projects",
+  "messageListVisibility": "show",
+  "labelListVisibility": "labelShow"
+}
+```
+
+### 9. Update Label (`update_label`)
+Updates an existing Gmail label.
+
+```json
+{
+  "id": "Label_1234567890",
+  "name": "Urgent Projects",
+  "messageListVisibility": "show",
+  "labelListVisibility": "labelShow"
+}
+```
+
+### 10. Delete Label (`delete_label`)
+Deletes a Gmail label.
+
+```json
+{
+  "id": "Label_1234567890"
+}
+```
+
+### 11. Get or Create Label (`get_or_create_label`)
+Gets an existing label by name or creates it if it doesn't exist.
+
+```json
+{
+  "name": "Project XYZ",
+  "messageListVisibility": "show",
+  "labelListVisibility": "labelShow"
+}
+```
+
+### 12. Batch Modify Emails (`batch_modify_emails`)
 Modifies labels for multiple emails in efficient batches.
 
 ```json
@@ -262,7 +306,7 @@ Modifies labels for multiple emails in efficient batches.
 }
 ```
 
-### 9. Batch Delete Emails (`batch_delete_emails`)
+### 13. Batch Delete Emails (`batch_delete_emails`)
 Permanently deletes multiple emails in efficient batches.
 
 ```json
@@ -307,6 +351,23 @@ The server fully supports non-ASCII characters in email subjects and content, in
 - Turkish, Chinese, Japanese, Korean, and other non-Latin alphabets
 - Special characters and symbols
 - Proper encoding ensures correct display in email clients
+
+### Comprehensive Label Management
+
+The server provides a complete set of tools for managing Gmail labels:
+
+- **Create Labels**: Create new labels with customizable visibility settings
+- **Update Labels**: Rename labels or change their visibility settings
+- **Delete Labels**: Remove user-created labels (system labels are protected)
+- **Find or Create**: Get a label by name or automatically create it if not found
+- **List All Labels**: View all system and user labels with detailed information
+- **Label Visibility Options**: Control how labels appear in message and label lists
+
+Label visibility settings include:
+- `messageListVisibility`: Controls whether the label appears in the message list (`show` or `hide`)
+- `labelListVisibility`: Controls how the label appears in the label list (`labelShow`, `labelShowIfUnread`, or `labelHide`)
+
+These label management features enable sophisticated organization of emails directly through Claude, without needing to switch to the Gmail interface.
 
 ### Batch Operations
 
