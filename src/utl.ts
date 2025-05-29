@@ -1,3 +1,8 @@
+import fs from 'fs';
+import path from 'path';
+import { lookup as mimeLookup } from 'mime-types';
+import nodemailer from 'nodemailer';
+
 /**
  * Helper function to encode email headers containing non-ASCII characters
  * according to RFC 2047 MIME specification
@@ -90,3 +95,55 @@ export function createEmailMessage(validatedArgs: any): string {
 
     return emailParts.join('\r\n');
 }
+
+
+export async function createEmailWithNodemailer(validatedArgs: any): Promise<string> {
+    // Validate email addresses
+    (validatedArgs.to as string[]).forEach(email => {
+        if (!validateEmail(email)) {
+            throw new Error(`Recipient email address is invalid: ${email}`);
+        }
+    });
+
+    // Create a nodemailer transporter (we won't actually send, just generate the message)
+    const transporter = nodemailer.createTransport({
+        streamTransport: true,
+        newline: 'unix',
+        buffer: true
+    });
+
+    // Prepare attachments for nodemailer
+    const attachments = [];
+    for (const filePath of validatedArgs.attachments) {
+        if (!fs.existsSync(filePath)) {
+            throw new Error(`File does not exist: ${filePath}`);
+        }
+        
+        const fileName = path.basename(filePath);
+        
+        attachments.push({
+            filename: fileName,
+            path: filePath
+        });
+    }
+
+    const mailOptions = {
+        from: 'me', // Gmail API will replace this with the authenticated user
+        to: validatedArgs.to.join(', '),
+        cc: validatedArgs.cc?.join(', '),
+        bcc: validatedArgs.bcc?.join(', '),
+        subject: validatedArgs.subject,
+        text: validatedArgs.body,
+        html: validatedArgs.htmlBody,
+        attachments: attachments,
+        inReplyTo: validatedArgs.inReplyTo,
+        references: validatedArgs.inReplyTo
+    };
+
+    // Generate the raw message
+    const info = await transporter.sendMail(mailOptions);
+    const rawMessage = info.message.toString();
+    
+    return rawMessage;
+}
+
