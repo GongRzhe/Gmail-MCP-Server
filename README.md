@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/gongrzhe-gmail-mcp-server-badge.png)](https://mseep.ai/app/gongrzhe-gmail-mcp-server)
+
 # Gmail AutoAuth MCP Server
 
 A Model Context Protocol (MCP) server for Gmail integration in Claude Desktop with auto authentication support. This server enables AI assistants to manage Gmail through natural language interactions.
